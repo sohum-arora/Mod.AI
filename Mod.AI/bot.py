@@ -7,6 +7,7 @@ import re
 import datetime
 import asyncio
 from openai import OpenAI
+import os
 
 # ================= CONFIG =================
 
