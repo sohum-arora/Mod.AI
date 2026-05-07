@@ -194,6 +194,8 @@ TOXIC
 SPAM
 
 Reason must be under 5 words.
+Be EXTREMELY strict for the TOXIC label no toxicity should happen under your watch.
+Especially messages which call users stupid, idiots, etc.
 """
                 },
                 {
