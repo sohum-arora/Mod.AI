@@ -153,7 +153,7 @@ def should_ai_scan(content):
     content = content.lower()
 
     # IGNORE SHORT MESSAGES
-    if len(content) < 12:
+    if len(content) < 8:
         return False
 
     # CAPS DETECTION
@@ -260,9 +260,7 @@ async def apply_punishment(
             action_desc = f"timed out for {duration_mins}m"
 
         elif action == "ban":
-
             await member.ban(reason=reason)
-
             action_desc = "banned permanently"
 
         else:
