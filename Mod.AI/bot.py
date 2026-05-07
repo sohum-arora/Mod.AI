@@ -10,7 +10,7 @@ from openai import OpenAI
 
 # ================= CONFIG =================
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("DTOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 BASE_URL = "https://api.openai.com/v1"
