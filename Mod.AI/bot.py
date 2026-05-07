@@ -10,8 +10,8 @@ from openai import OpenAI
 
 # ================= CONFIG =================
 
-TOKEN = "MTUwMTIxNTEzMzM0NTY0ODgwMQ.GGDK_a.BHKErNwxlrgZj9MW2iYxdFxEUnul-MXw5_JgGo"
-OPENAI_API_KEY = "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"
+TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 BASE_URL = "https://api.openai.com/v1"
 LOG_CHANNEL_NAME = "mod-logs"
