@@ -150,22 +150,69 @@ SCAM_PATTERNS = [
 
 def should_ai_scan(content):
 
-    content = content.lower()
+    original = content
+    lowered = content.lower()
 
-    # IGNORE SHORT MESSAGES
-    if len(content) < 8:
+    words = lowered.split()
+
+    # Ignore extremely tiny messages
+    if len(words) < 3:
         return False
 
+    # Hard suspicious keywords
+    suspicious_keywords = [
+        "kill yourself",
+        "kys",
+        "stupid",
+        "idiot",
+        "retard",
+        "dumbass",
+        "bitch",
+        "fuck you",
+        "moron",
+        "loser",
+        "hate you",
+        "die",
+        "racist",
+        "nazi",
+        "fatass"
+    ]
+
+    if any(word in lowered for word in suspicious_keywords):
+        return True
+
     # CAPS DETECTION
-    if len(content) > 20:
+    if len(original) > 15:
 
-        caps = sum(1 for c in content if c.isupper())
+        caps = sum(1 for c in original if c.isupper())
+        letters = sum(1 for c in original if c.isalpha())
 
-        if caps / len(content) > 0.7:
+        if letters > 0 and (caps / letters) > 0.6:
             return True
 
-    # EXCESSIVE PUNCTUATION
-    if content.count("!") >= 5:
+    # Excessive punctuation
+    if (
+        lowered.count("!") >= 4 or
+        lowered.count("?") >= 4
+    ):
+        return True
+
+    # Long aggressive messages
+    aggressive_words = [
+        "fuck",
+        "shit",
+        "bitch",
+        "asshole",
+        "retard",
+        "idiot"
+    ]
+
+    aggression_score = sum(
+        1 for word in aggressive_words
+        if word in lowered
+    )
+
+    if aggression_score >= 1 and len(words) >= 5:
         return True
 
     return False
