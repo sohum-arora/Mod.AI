@@ -202,148 +202,148 @@ DASHBOARD_HTML = """
 
     <style>
 
-        body {
+        body {{
             margin: 0;
             background: #0d0f14;
             color: white;
             font-family: Arial, sans-serif;
-        }
+        }}
 
-        .container {
+        .container {{
             width: 92%;
             max-width: 1400px;
             margin: auto;
             padding: 30px;
-        }
+        }}
 
-        h1 {
+        h1 {{
             margin-bottom: 25px;
-        }
+        }}
 
-        .topbar {
+        .topbar {{
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
-        }
+        }}
 
-        .logout-btn {
+        .logout-btn {{
             background: #ff4d4d;
             color: white;
             text-decoration: none;
             padding: 10px 18px;
             border-radius: 8px;
             font-weight: bold;
-        }
+        }}
 
-        .stats {
+        .stats {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 18px;
             margin-bottom: 35px;
-        }
+        }}
 
-        .card {
+        .card {{
             background: #13161e;
             border: 1px solid #1f2430;
             border-radius: 14px;
             padding: 22px;
-        }
+        }}
 
-        .card h2 {
+        .card h2 {{
             margin: 0;
             font-size: 15px;
             color: #9aa3b2;
-        }
+        }}
 
-        .value {
+        .value {{
             margin-top: 12px;
             font-size: 34px;
             font-weight: bold;
-        }
+        }}
 
-        .tables {
+        .tables {{
             display: grid;
             grid-template-columns: 1fr 2fr;
             gap: 20px;
-        }
+        }}
 
-        .table-card {
+        .table-card {{
             background: #13161e;
             border: 1px solid #1f2430;
             border-radius: 14px;
             padding: 20px;
             overflow-x: auto;
-        }
+        }}
 
-        table {
+        table {{
             width: 100%;
             border-collapse: collapse;
-        }
+        }}
 
-        th {
+        th {{
             text-align: left;
             padding: 12px;
             color: #9aa3b2;
             border-bottom: 1px solid #222734;
-        }
+        }}
 
-        td {
+        td {{
             padding: 12px;
             border-bottom: 1px solid #1b1f2a;
-        }
+        }}
 
-        tr:hover {
+        tr:hover {{
             background: #171b25;
-        }
+        }}
 
-        .warn-count {
+        .warn-count {{
             background: #ffb84d;
             color: black;
             padding: 4px 10px;
             border-radius: 999px;
             font-weight: bold;
-        }
+        }}
 
-        .badge {
+        .badge {{
             padding: 5px 10px;
             border-radius: 999px;
             font-size: 12px;
             font-weight: bold;
             text-transform: uppercase;
-        }
+        }}
 
-        .badge-ban {
+        .badge-ban {{
             background: #ff4d4d;
-        }
+        }}
 
-        .badge-kick {
+        .badge-kick {{
             background: #ff944d;
-        }
+        }}
 
-        .badge-timeout {
+        .badge-timeout {{
             background: #5865F2;
-        }
+        }}
 
-        .badge-warn {
+        .badge-warn {{
             background: #ffd24d;
             color: black;
-        }
+        }}
 
-        .badge-automod {
+        .badge-automod {{
             background: #2ecc71;
-        }
+        }}
 
-        .empty {
+        .empty {{
             text-align: center;
             color: #777;
             padding: 20px;
-        }
+        }}
 
-        .ts {
+        .ts {{
             color: #9aa3b2;
             font-size: 13px;
-        }
+        }}
 
     </style>
 
