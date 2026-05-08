@@ -2,3 +2,4 @@ discord.py
 aiosqlite
 openai
 flask
+requests
