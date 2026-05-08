@@ -11,235 +11,170 @@ from openai import OpenAI
 import os
 import json
 
-from flask import Flask, jsonify
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    request,
+    session
+)
+
+import requests
 from threading import Thread
+
+app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET", "supersecretkey")
 
 # ================= FLASK DASHBOARD =================
 
-app = Flask(__name__)
+@app.route("/")
+def home():
 
-DASHBOARD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Mod.AI Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
-    <style>
-        :root {{
-            --bg: #0d0f14;
-            --surface: #13161e;
-            --border: #1e2230;
-            --accent: #5865f2;
-            --accent2: #eb459e;
-            --text: #c8ccd8;
-            --muted: #555b70;
-            --warn: #faa61a;
-            --ban: #ed4245;
-            --kick: #eb459e;
-            --timeout: #5865f2;
-            --safe: #3ba55c;
-        }}
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Space Mono', monospace;
-            min-height: 100vh;
-        }}
-        .header {{
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 20px 40px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }}
-        .header h1 {{
-            font-family: 'Syne', sans-serif;
-            font-weight: 800;
-            font-size: 1.6rem;
-            color: #fff;
-        }}
-        .header .dot {{
-            width: 10px; height: 10px;
-            background: var(--safe);
-            border-radius: 50%;
-            box-shadow: 0 0 8px var(--safe);
-            animation: pulse 2s infinite;
-        }}
-        @keyframes pulse {{
-            0%, 100% {{ opacity: 1; }}
-            50% {{ opacity: 0.4; }}
-        }}
-        .container {{
-            padding: 30px 40px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }}
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
-            margin-bottom: 36px;
-        }}
-        .stat-card {{
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 20px;
-        }}
-        .stat-card .label {{
-            font-size: 0.7rem;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-bottom: 8px;
-        }}
-        .stat-card .value {{
-            font-family: 'Syne', sans-serif;
-            font-size: 2rem;
-            font-weight: 800;
-            color: #fff;
-        }}
-        .section {{
-            margin-bottom: 36px;
-        }}
-        .section-title {{
-            font-family: 'Syne', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            margin-bottom: 14px;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            overflow: hidden;
-        }}
-        th {{
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--muted);
-            border-bottom: 1px solid var(--border);
-        }}
-        td {{
-            padding: 11px 16px;
-            font-size: 0.82rem;
-            border-bottom: 1px solid var(--border);
-        }}
-        tr:last-child td {{
-            border-bottom: none;
-        }}
-        tr:hover td {{
-            background: rgba(255,255,255,0.02);
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 2px 9px;
-            border-radius: 4px;
-            font-size: 0.72rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-        .badge-warn {{
-            background: rgba(250,166,26,0.15);
-            color: var(--warn);
-            border: 1px solid rgba(250,166,26,0.3);
-        }}
-        .badge-ban {{
-            background: rgba(237,66,69,0.15);
-            color: var(--ban);
-            border: 1px solid rgba(237,66,69,0.3);
-        }}
-        .badge-kick {{
-            background: rgba(235,69,158,0.15);
-            color: var(--kick);
-            border: 1px solid rgba(235,69,158,0.3);
-        }}
-        .badge-timeout {{
-            background: rgba(88,101,242,0.15);
-            color: var(--timeout);
-            border: 1px solid rgba(88,101,242,0.3);
-        }}
-        .badge-automod {{
-            background: rgba(58,165,92,0.15);
-            color: var(--safe);
-            border: 1px solid rgba(58,165,92,0.3);
-        }}
-        .warn-count {{
-            display: inline-block;
-            background: rgba(250,166,26,0.1);
-            color: var(--warn);
-            border: 1px solid rgba(250,166,26,0.25);
-            border-radius: 4px;
-            padding: 1px 8px;
-            font-size: 0.8rem;
-            font-weight: 700;
-        }}
-        .empty {{
-            color: var(--muted);
-            font-size: 0.85rem;
-            padding: 20px 16px;
-        }}
-        .ts {{
-            color: var(--muted);
-            font-size: 0.75rem;
-        }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="dot"></div>
-        <h1>Mod.AI Dashboard</h1>
-    </div>
-    <div class="container">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="label">Total Actions</div>
-                <div class="value">{total_actions}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Warned Users</div>
-                <div class="value">{warned_users}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Bans</div>
-                <div class="value">{total_bans}</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Timeouts</div>
-                <div class="value">{total_timeouts}</div>
-            </div>
-        </div>
+    if "user" not in session:
 
-        <div class="section">
-            <div class="section-title">Top Warned Users</div>
-            <table>
-                <tr><th>User ID</th><th>Warnings</th></tr>
-                {warnings_rows}
-            </table>
-        </div>
+        return f"""
+        <html>
+        <head>
+            <title>Mod.AI Login</title>
 
-        <div class="section">
-            <div class="section-title">Recent Actions</div>
-            <table>
-                <tr><th>Time</th><th>User</th><th>Action</th><th>Reason</th><th>Moderator</th></tr>
-                {actions_rows}
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-"""
+            <style>
+                body {{
+                    background: #0d0f14;
+                    color: white;
+                    font-family: Arial;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                }}
+
+                .box {{
+                    background: #13161e;
+                    padding: 40px;
+                    border-radius: 14px;
+                    border: 1px solid #1f2430;
+                    text-align: center;
+                    width: 340px;
+                }}
+
+                h1 {{
+                    margin-bottom: 12px;
+                }}
+
+                p {{
+                    color: #9aa3b2;
+                    margin-bottom: 24px;
+                }}
+
+                .btn {{
+                    display: inline-block;
+                    background: #5865F2;
+                    color: white;
+                    text-decoration: none;
+                    padding: 14px 22px;
+                    border-radius: 10px;
+                    font-weight: bold;
+                    transition: 0.2s;
+                }}
+
+                .btn:hover {{
+                    opacity: 0.9;
+                    transform: translateY(-2px);
+                }}
+            </style>
+        </head>
+
+        <body>
+
+            <div class="box">
+                <h1>Mod.AI Dashboard</h1>
+
+                <p>Login with Discord to continue</p>
+
+                <a class="btn" href="/login">
+                    Login with Discord
+                </a>
+            </div>
+
+        </body>
+        </html>
+        """
+
+    return redirect("/dashboard")
+
+
+@app.route("/login")
+def login():
+
+    discord_login_url = (
+        "https://discord.com/api/oauth2/authorize"
+        f"?client_id={DISCORD_CLIENT_ID}"
+        "&response_type=code"
+        f"&redirect_uri={DISCORD_REDIRECT_URI}"
+        "&scope=identify%20guilds"
+    )
+
+    return redirect(discord_login_url)
+
+
+@app.route("/callback")
+def callback():
+
+    code = request.args.get("code")
+
+    if not code:
+        return "No code provided"
+
+    data = {
+        "client_id": DISCORD_CLIENT_ID,
+        "client_secret": DISCORD_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": DISCORD_REDIRECT_URI,
+    }
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    token_response = requests.post(
+        "https://discord.com/api/oauth2/token",
+        data=data,
+        headers=headers
+    )
+
+    token_json = token_response.json()
+
+    access_token = token_json.get("access_token")
+
+    if not access_token:
+        return f"OAuth failed: {token_json}"
+
+    user_response = requests.get(
+        "https://discord.com/api/users/@me",
+        headers={
+            "Authorization": f"Bearer {access_token}"
+        }
+    )
+
+    user_json = user_response.json()
+
+    session["user"] = {
+        "id": user_json["id"],
+        "username": user_json["username"],
+        "avatar": user_json.get("avatar")
+    }
+
+    return redirect("/dashboard")
+
+
+@app.route("/logout")
+def logout():
+
+    session.clear()
+
+    return redirect("/")
 
 def get_badge(action):
     a = action.lower()
@@ -253,10 +188,253 @@ def get_badge(action):
         return f'<span class="badge badge-warn">warn</span>'
     else:
         return f'<span class="badge badge-automod">{action}</span>'
+    
 
-@app.route('/')
-def home():
-    return "Bot is alive"
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>Mod.AI Dashboard</title>
+
+    <meta charset="UTF-8">
+
+    <style>
+
+        body {
+            margin: 0;
+            background: #0d0f14;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            width: 92%;
+            max-width: 1400px;
+            margin: auto;
+            padding: 30px;
+        }
+
+        h1 {
+            margin-bottom: 25px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .logout-btn {
+            background: #ff4d4d;
+            color: white;
+            text-decoration: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+            margin-bottom: 35px;
+        }
+
+        .card {
+            background: #13161e;
+            border: 1px solid #1f2430;
+            border-radius: 14px;
+            padding: 22px;
+        }
+
+        .card h2 {
+            margin: 0;
+            font-size: 15px;
+            color: #9aa3b2;
+        }
+
+        .value {
+            margin-top: 12px;
+            font-size: 34px;
+            font-weight: bold;
+        }
+
+        .tables {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+        }
+
+        .table-card {
+            background: #13161e;
+            border: 1px solid #1f2430;
+            border-radius: 14px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px;
+            color: #9aa3b2;
+            border-bottom: 1px solid #222734;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #1b1f2a;
+        }
+
+        tr:hover {
+            background: #171b25;
+        }
+
+        .warn-count {
+            background: #ffb84d;
+            color: black;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-weight: bold;
+        }
+
+        .badge {
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .badge-ban {
+            background: #ff4d4d;
+        }
+
+        .badge-kick {
+            background: #ff944d;
+        }
+
+        .badge-timeout {
+            background: #5865F2;
+        }
+
+        .badge-warn {
+            background: #ffd24d;
+            color: black;
+        }
+
+        .badge-automod {
+            background: #2ecc71;
+        }
+
+        .empty {
+            text-align: center;
+            color: #777;
+            padding: 20px;
+        }
+
+        .ts {
+            color: #9aa3b2;
+            font-size: 13px;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="topbar">
+
+            <h1>🛡️ Mod.AI Dashboard</h1>
+
+            <a class="logout-btn" href="/logout">
+                Logout
+            </a>
+
+        </div>
+
+        <div class="stats">
+
+            <div class="card">
+                <h2>Total Actions</h2>
+                <div class="value">{total_actions}</div>
+            </div>
+
+            <div class="card">
+                <h2>Warned Users</h2>
+                <div class="value">{warned_users}</div>
+            </div>
+
+            <div class="card">
+                <h2>Total Bans</h2>
+                <div class="value">{total_bans}</div>
+            </div>
+
+            <div class="card">
+                <h2>Total Timeouts</h2>
+                <div class="value">{total_timeouts}</div>
+            </div>
+
+        </div>
+
+        <div class="tables">
+
+            <div class="table-card">
+
+                <h2>⚠️ Top Warned Users</h2>
+
+                <table>
+
+                    <tr>
+                        <th>User ID</th>
+                        <th>Warnings</th>
+                    </tr>
+
+                    {warnings_rows}
+
+                </table>
+
+            </div>
+
+            <div class="table-card">
+
+                <h2>📜 Recent Moderation Actions</h2>
+
+                <table>
+
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Reason</th>
+                        <th>Moderator</th>
+                    </tr>
+
+                    {actions_rows}
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+
+</html>
+"""
+
 
 @app.route('/dashboard')
 def dashboard():
@@ -349,15 +527,21 @@ def keep_alive():
     t = Thread(target=run_web)
     t.start()
 
-keep_alive()
-
 # ================= CONFIG =================
 
 TOKEN = os.getenv("TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI")
+
 BASE_URL = "https://integrate.api.nvidia.com/v1"
 LOG_CHANNEL_NAME = "mod-logs"
+
+keep_alive()
+
+
 
 # ================= AI CLIENT =================
 
