@@ -670,7 +670,7 @@ async def on_message(message):
 
             # Not a reply — generic response
             await message.channel.send(
-                "I'm here to help! Use the `/report` command to report a message or ping me in a reply to a message to report :)"
+                "I'm here to help! Ping me in a reply to a message to report it to me and the mods :)"
             )
 
         return
