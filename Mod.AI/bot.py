@@ -298,6 +298,7 @@ This includes: calling someone stupid, idiot, dumb, moron, ugly, loser, or any v
 Even indirect or mild insults like "ur stupid" or "you're an idiot" = TOXIC.
 Phrases like "ur a stupid idiot" are always TOXIC.
 When in doubt, label TOXIC.
+Be VERY STRICT when a message has been reported to you, when in doubt, mark it as toxic
 """
                 },
                 {
@@ -325,6 +326,34 @@ When in doubt, label TOXIC.
         print("AI ERROR:", e)
 
         return ("SAFE", "analysis error")
+
+# ================= AI Q&A =================
+
+def ask_ai(question):
+
+    try:
+
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful Discord bot assistant. Answer questions clearly and concisely. Keep responses short and friendly unless detail is needed."
+                },
+                {
+                    "role": "user",
+                    "content": question
+                }
+            ],
+            temperature=0.7
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+
+        print("AI Q&A ERROR:", e)
+        return "❌ Something went wrong while thinking. Try again!"
 
 # ================= LOGGING =================
 
@@ -668,10 +697,21 @@ async def on_message(message):
 
         else:
 
-            # Not a reply — generic response
-            await message.channel.send(
-                "I'm here to help! Ping me in a reply to a message to report it to me and the mods :)"
-            )
+            # Strip mention(s) to get actual content
+            question = re.sub(r"<@!?\d+>", "", message.content).strip()
+
+            if question:
+
+                # Has content after mention → answer with AI
+                answer = await asyncio.to_thread(ask_ai, question)
+                await message.channel.send(answer)
+
+            else:
+
+                # Bare ping with no content → generic message
+                await message.channel.send(
+                    "I'm here to help! Use the `/report` command to report a message or ping me in a reply to a message to report :)"
+                )
 
         return
 
