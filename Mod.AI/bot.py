@@ -352,8 +352,9 @@ def ask_ai(question):
 
     except Exception as e:
 
-        print("AI Q&A ERROR:", e)
-        return "❌ Something went wrong while thinking. Try again!"
+        import traceback
+        traceback.print_exc()
+        return f"❌ Error: {str(e)}"
 
 # ================= LOGGING =================
 
