@@ -34,7 +34,7 @@ keep_alive()
 TOKEN = os.getenv("TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-BASE_URL = "https://api.openai.com/v1"
+BASE_URL = "https://integrate.api.nvidia.com/v1"
 LOG_CHANNEL_NAME = "mod-logs"
 
 # ================= AI CLIENT =================
