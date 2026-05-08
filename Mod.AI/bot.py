@@ -714,7 +714,9 @@ This includes: calling someone stupid, idiot, dumb, moron, ugly, loser, or any v
 Even indirect or mild insults like "ur stupid" or "you're an idiot" = TOXIC.
 Phrases like "ur a stupid idiot" are always TOXIC.
 When in doubt, label TOXIC.
-Be VERY STRICT. If server rules are provided and a rule is violated, cite the rule number.{rules_section}"""
+Be VERY STRICT. If server rules are provided and a rule is violated, cite the rule number.
+
+{rules_section}"""
                 },
                 {
                     "role": "user",
@@ -748,14 +750,15 @@ def ask_ai(question):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful Discord bot assistant. Answer questions clearly and concisely. Keep responses short and friendly unless detail is needed."
+                    "content": 
+                    "You are a helpful Discord bot assistant. Answer questions clearly and concisely. Keep responses short and friendly unless detail is needed. Formatting of your answers must be in discord text formatting especially for mathematical equations."
                 },
                 {
                     "role": "user",
                     "content": question
                 }
             ],
-            temperature=0.7
+            temperature=1.5
         )
 
         return response.choices[0].message.content.strip()
