@@ -646,45 +646,96 @@ TARGET_WORDS = [
 
 def is_direct_insult(content):
     lowered = content.lower()
+
+    # Ignore quoted/reported speech
+    if any(indicator in lowered for indicator in QUOTE_INDICATORS):
+        return False
+
+    # Ignore quotation marks
+    if re.search(r'["\'].{3,80}["\']', lowered):
+        return False
+
+    insult_patterns = [
+        r"\byou('?re| are)?\s+(a\s+)?(stupid|idiot|moron|loser|retard|dumbass|fatass|ugly|worthless|pathetic|brainless|imbecile)\b",
+        r"\b(fuck you|you suck|kill yourself|kys)\b",
+        r"\b(shut up)\b",
+    ]
+
+    for pattern in insult_patterns:
+        if re.search(pattern, lowered):
+            return True
+
     has_insult = any(word in lowered for word in INSULT_WORDS)
     has_target = any(t in lowered for t in TARGET_WORDS)
+
     return has_insult and has_target
 
 def should_ai_scan(content):
+    lowered = content.lower().strip()
 
-    original = content
-    lowered = content.lower()
-    words = lowered.split()
-
-    if len(words) < 3:
+    # Ignore extremely short harmless messages
+    if len(lowered) < 4:
         return False
 
     suspicious_keywords = [
-        "kill yourself", "kys", "stupid", "idiot", "retard",
-        "dumbass", "bitch", "fuck you", "moron", "loser",
-        "hate you", "die", "racist", "nazi", "fatass"
+        "kill yourself", "kys",
+        "stupid", "idiot", "retard",
+        "dumbass", "bitch", "fuck you",
+        "moron", "loser", "hate you",
+        "die", "racist", "nazi",
+        "fatass", "ugly", "worthless",
+        "pathetic", "dickhead", "asshole",
+        "clown", "dumb", "trash"
     ]
 
+    # Immediate trigger keywords
     if any(word in lowered for word in suspicious_keywords):
         return True
 
-    if len(original) > 15:
-        caps = sum(1 for c in original if c.isupper())
-        letters = sum(1 for c in original if c.isalpha())
-        if letters > 0 and (caps / letters) > 0.6:
+    # Aggressive profanity combos
+    aggressive_words = [
+        "fuck", "shit", "bitch",
+        "asshole", "retard", "idiot",
+        "moron", "loser"
+    ]
+
+    aggression_score = sum(
+        lowered.count(word) for word in aggressive_words
+    )
+
+    if aggression_score >= 1:
+        return True
+
+    # Excessive caps
+    letters = sum(c.isalpha() for c in content)
+    caps = sum(c.isupper() for c in content)
+
+    if letters >= 6:
+        cap_ratio = caps / letters
+        if cap_ratio > 0.55:
             return True
 
-    if lowered.count("!") >= 4 or lowered.count("?") >= 4:
+    # Spam punctuation
+    if lowered.count("!") >= 3:
         return True
 
-    aggressive_words = ["fuck", "shit", "bitch", "asshole", "retard", "idiot"]
-    aggression_score = sum(1 for word in aggressive_words if word in lowered)
-
-    if aggression_score >= 1 and len(words) >= 5:
+    if lowered.count("?") >= 4:
         return True
+
+    # Toxic sentence structures
+    toxic_patterns = [
+        r"\byou\s+(are|re)\s+\w+",
+        r"\bi\s+hate\s+you\b",
+        r"\bno\s+one\s+likes\s+you\b",
+        r"\byou\s+suck\b",
+        r"\bshut\s+the\s+fuck\s+up\b",
+    ]
+
+    for pattern in toxic_patterns:
+        if re.search(pattern, lowered):
+            return True
 
     return False
-
 # ================= AI ANALYSIS =================
 
 def analyze_message(text, rules=None):
@@ -1284,7 +1335,7 @@ You can also ping me in a reply to a message to report it.
 
     # ================= HARD SLUR FILTER =================
 
-    if any(word in lowered for word in BAD_WORDS):
+    if any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in BAD_WORDS):
 
         try:
             await message.delete()
