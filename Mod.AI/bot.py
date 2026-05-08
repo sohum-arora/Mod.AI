@@ -25,7 +25,7 @@ DASHBOARD_HTML = """
     <title>Mod.AI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
+        :root {{
             --bg: #0d0f14;
             --surface: #13161e;
             --border: #1e2230;
@@ -38,67 +38,73 @@ DASHBOARD_HTML = """
             --kick: #eb459e;
             --timeout: #5865f2;
             --safe: #3ba55c;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
             background: var(--bg);
             color: var(--text);
             font-family: 'Space Mono', monospace;
             min-height: 100vh;
-        }
-        .header {
+        }}
+        .header {{
             background: var(--surface);
             border-bottom: 1px solid var(--border);
             padding: 20px 40px;
             display: flex;
             align-items: center;
             gap: 14px;
-        }
-        .header h1 {
+        }}
+        .header h1 {{
             font-family: 'Syne', sans-serif;
             font-weight: 800;
             font-size: 1.6rem;
             color: #fff;
-        }
-        .header .dot {
+        }}
+        .header .dot {{
             width: 10px; height: 10px;
             background: var(--safe);
             border-radius: 50%;
             box-shadow: 0 0 8px var(--safe);
             animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-        .container { padding: 30px 40px; max-width: 1200px; margin: 0 auto; }
-        .stats-grid {
+        }}
+        @keyframes pulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.4; }}
+        }}
+        .container {{
+            padding: 30px 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        .stats-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 16px;
             margin-bottom: 36px;
-        }
-        .stat-card {
+        }}
+        .stat-card {{
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 20px;
-        }
-        .stat-card .label {
+        }}
+        .stat-card .label {{
             font-size: 0.7rem;
             color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 0.1em;
             margin-bottom: 8px;
-        }
-        .stat-card .value {
+        }}
+        .stat-card .value {{
             font-family: 'Syne', sans-serif;
             font-size: 2rem;
             font-weight: 800;
             color: #fff;
-        }
-        .section { margin-bottom: 36px; }
-        .section-title {
+        }}
+        .section {{
+            margin-bottom: 36px;
+        }}
+        .section-title {{
             font-family: 'Syne', sans-serif;
             font-size: 0.85rem;
             font-weight: 700;
@@ -106,16 +112,16 @@ DASHBOARD_HTML = """
             text-transform: uppercase;
             letter-spacing: 0.12em;
             margin-bottom: 14px;
-        }
-        table {
+        }}
+        table {{
             width: 100%;
             border-collapse: collapse;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
             overflow: hidden;
-        }
-        th {
+        }}
+        th {{
             padding: 12px 16px;
             text-align: left;
             font-size: 0.72rem;
@@ -123,15 +129,19 @@ DASHBOARD_HTML = """
             letter-spacing: 0.08em;
             color: var(--muted);
             border-bottom: 1px solid var(--border);
-        }
-        td {
+        }}
+        td {{
             padding: 11px 16px;
             font-size: 0.82rem;
             border-bottom: 1px solid var(--border);
-        }
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background: rgba(255,255,255,0.02); }
-        .badge {
+        }}
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+        tr:hover td {{
+            background: rgba(255,255,255,0.02);
+        }}
+        .badge {{
             display: inline-block;
             padding: 2px 9px;
             border-radius: 4px;
@@ -139,13 +149,33 @@ DASHBOARD_HTML = """
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-        }
-        .badge-warn { background: rgba(250,166,26,0.15); color: var(--warn); border: 1px solid rgba(250,166,26,0.3); }
-        .badge-ban { background: rgba(237,66,69,0.15); color: var(--ban); border: 1px solid rgba(237,66,69,0.3); }
-        .badge-kick { background: rgba(235,69,158,0.15); color: var(--kick); border: 1px solid rgba(235,69,158,0.3); }
-        .badge-timeout { background: rgba(88,101,242,0.15); color: var(--timeout); border: 1px solid rgba(88,101,242,0.3); }
-        .badge-automod { background: rgba(58,165,92,0.15); color: var(--safe); border: 1px solid rgba(58,165,92,0.3); }
-        .warn-count {
+        }}
+        .badge-warn {{
+            background: rgba(250,166,26,0.15);
+            color: var(--warn);
+            border: 1px solid rgba(250,166,26,0.3);
+        }}
+        .badge-ban {{
+            background: rgba(237,66,69,0.15);
+            color: var(--ban);
+            border: 1px solid rgba(237,66,69,0.3);
+        }}
+        .badge-kick {{
+            background: rgba(235,69,158,0.15);
+            color: var(--kick);
+            border: 1px solid rgba(235,69,158,0.3);
+        }}
+        .badge-timeout {{
+            background: rgba(88,101,242,0.15);
+            color: var(--timeout);
+            border: 1px solid rgba(88,101,242,0.3);
+        }}
+        .badge-automod {{
+            background: rgba(58,165,92,0.15);
+            color: var(--safe);
+            border: 1px solid rgba(58,165,92,0.3);
+        }}
+        .warn-count {{
             display: inline-block;
             background: rgba(250,166,26,0.1);
             color: var(--warn);
@@ -154,9 +184,16 @@ DASHBOARD_HTML = """
             padding: 1px 8px;
             font-size: 0.8rem;
             font-weight: 700;
-        }
-        .empty { color: var(--muted); font-size: 0.85rem; padding: 20px 16px; }
-        .ts { color: var(--muted); font-size: 0.75rem; }
+        }}
+        .empty {{
+            color: var(--muted);
+            font-size: 0.85rem;
+            padding: 20px 16px;
+        }}
+        .ts {{
+            color: var(--muted);
+            font-size: 0.75rem;
+        }}
     </style>
 </head>
 <body>
