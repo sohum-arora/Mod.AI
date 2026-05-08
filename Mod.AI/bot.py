@@ -161,12 +161,13 @@ def callback():
     user_json = user_response.json()
 
     session["user"] = {
-        "id": user_json["id"],
-        "username": user_json["username"],
-        "avatar": user_json.get("avatar")
+    "id": user_json["id"],
+    "username": user_json["username"],
+    "avatar": user_json.get("avatar")
     }
 
-    return redirect("/dashboard")
+    session["access_token"] = access_token
+    return redirect("/servers")
 
 
 @app.route("/logout")
@@ -491,6 +492,134 @@ def dashboard():
 
     except Exception as e:
         return f"Dashboard error: {e}"
+
+@app.route("/servers")
+def servers():
+
+    if "user" not in session:
+        return redirect("/")
+
+    access_token = request.cookies.get("access_token")
+
+    user_guilds = requests.get(
+        "https://discord.com/api/users/@me/guilds",
+        headers={
+            "Authorization": f"Bearer {session['access_token']}"
+        }
+    ).json()
+
+    guild_cards = ""
+
+    for guild in user_guilds:
+
+        permissions = int(guild.get("permissions", 0))
+
+        # ADMINISTRATOR PERMISSION
+        if permissions & 0x8:
+
+            icon_url = ""
+
+            if guild.get("icon"):
+                icon_url = (
+                    f"https://cdn.discordapp.com/icons/"
+                    f"{guild['id']}/{guild['icon']}.png"
+                )
+
+            guild_cards += f"""
+            <a class="server-card" href="/dashboard/{guild['id']}">
+
+                <img src="{icon_url}" class="server-icon">
+
+                <div class="server-name">
+                    {guild['name']}
+                </div>
+
+            </a>
+            """
+
+    return f"""
+    <html>
+
+    <head>
+
+        <title>Select Server</title>
+
+        <style>
+
+            body {{
+                background: #0d0f14;
+                color: white;
+                font-family: Arial;
+                margin: 0;
+            }}
+
+            .container {{
+                width: 90%;
+                max-width: 1200px;
+                margin: auto;
+                padding: 40px;
+            }}
+
+            h1 {{
+                margin-bottom: 30px;
+            }}
+
+            .grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 20px;
+            }}
+
+            .server-card {{
+                background: #13161e;
+                border: 1px solid #1f2430;
+                border-radius: 16px;
+                padding: 24px;
+                text-decoration: none;
+                color: white;
+                transition: 0.2s;
+                text-align: center;
+            }}
+
+            .server-card:hover {{
+                transform: translateY(-4px);
+                background: #171b25;
+            }}
+
+            .server-icon {{
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                margin-bottom: 15px;
+            }}
+
+            .server-name {{
+                font-size: 18px;
+                font-weight: bold;
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <h1>Select a Server</h1>
+
+            <div class="grid">
+
+                {guild_cards}
+
+            </div>
+
+        </div>
+
+    </body>
+
+    </html>
+    """
 
 @app.route('/api/warnings')
 def api_warnings():
