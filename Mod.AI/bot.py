@@ -8,20 +8,23 @@ import datetime
 import asyncio
 from openai import OpenAI
 import os
+
 from flask import Flask
 from threading import Thread
+import os
 
-app = Flask('')
+app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Bot is alive"
 
-def run():
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
-    t = Thread(target=run)
+    t = Thread(target=run_web)
     t.start()
 
 keep_alive()
@@ -490,6 +493,90 @@ async def warn(
     )
 
 @bot.tree.command(
+    name="report",
+    description="Report a message by its ID for AI review"
+)
+async def report(
+    interaction: discord.Interaction,
+    message_id: str
+):
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        msg_id = int(message_id)
+    except ValueError:
+        return await interaction.followup.send("❌ Invalid message ID.")
+
+    target_msg = None
+
+    for channel in interaction.guild.text_channels:
+        try:
+            target_msg = await channel.fetch_message(msg_id)
+            break
+        except:
+            continue
+
+    if not target_msg:
+        return await interaction.followup.send("❌ Message not found.")
+
+    if target_msg.author.bot:
+        return await interaction.followup.send("❌ Cannot report bot messages.")
+
+    if target_msg.author == interaction.user:
+        return await interaction.followup.send("❌ You cannot report your own message.")
+
+    verdict, reason = await asyncio.to_thread(
+        analyze_message,
+        target_msg.content
+    )
+
+    if verdict in ["TOXIC", "SPAM"]:
+
+        try:
+            await target_msg.delete()
+        except:
+            pass
+
+        member = interaction.guild.get_member(target_msg.author.id)
+
+        if member:
+
+            if can_warn(member.id):
+
+                warnings = await add_warning(member.id)
+
+                await handle_warning_logic(
+                    interaction,
+                    member,
+                    warnings,
+                    f"Reported: {reason}"
+                )
+
+        await interaction.followup.send(
+            f"✅ Report confirmed. Action taken against {target_msg.author.mention}.\nReason: {reason}",
+            ephemeral=True
+        )
+
+        await log_action(
+            interaction.guild,
+            f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} | Reason: {reason}"
+        )
+
+    else:
+
+        await interaction.followup.send(
+            f"✅ Report reviewed. Message was deemed **{verdict}** — no action taken.",
+            ephemeral=True
+        )
+
+        await log_action(
+            interaction.guild,
+            f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} (no action)"
+        )
+
+
+@bot.tree.command(
     name="clear_warnings",
     description="Clear warnings"
 )
@@ -523,6 +610,70 @@ async def on_message(message):
         return
 
     lowered = message.content.lower()
+
+    # ================= BOT MENTION HANDLING =================
+
+    if bot.user in message.mentions:
+
+        # Reply to a message → report it
+        if message.reference and message.reference.message_id:
+
+            try:
+                replied_msg = await message.channel.fetch_message(
+                    message.reference.message_id
+                )
+            except:
+                replied_msg = None
+
+            if replied_msg and not replied_msg.author.bot:
+
+                verdict, reason = await asyncio.to_thread(
+                    analyze_message,
+                    replied_msg.content
+                )
+
+                if verdict in ["TOXIC", "SPAM"]:
+
+                    try:
+                        await replied_msg.delete()
+                    except:
+                        pass
+
+                    member = message.guild.get_member(replied_msg.author.id)
+
+                    if member and can_warn(member.id):
+
+                        warnings = await add_warning(member.id)
+
+                        await handle_warning_logic(
+                            message,
+                            member,
+                            warnings,
+                            f"Reported via mention: {reason}"
+                        )
+
+                    await log_action(
+                        message.guild,
+                        f"Mention-report by {message.author} | Target: {replied_msg.author} | Verdict: {verdict} | Reason: {reason}"
+                    )
+
+                else:
+
+                    await message.channel.send(
+                        f"✅ Message reviewed — deemed **{verdict}**. No action taken."
+                    )
+
+            elif replied_msg and replied_msg.author.bot:
+                await message.channel.send("❌ Cannot report bot messages.")
+
+        else:
+
+            # Not a reply — generic response
+            await message.channel.send(
+                "I'm here to help! Use the `/report` command to report a message or ping me in a reply to a message to report :)"
+            )
+
+        return
 
     # IGNORE STAFF
     if message.author.guild_permissions.manage_messages:
