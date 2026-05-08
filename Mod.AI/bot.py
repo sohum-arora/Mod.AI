@@ -1250,21 +1250,25 @@ async def on_message(message):
             else:
                 await message.channel.send(
                     """
-                    I'm here to help!
+I'm here to help!
 
-                    **Commands List:**
+**Commands List:**
 
-                    /warn [user]: Issue a warning to a user
-                    /mute [user]: Timeout a user
-                    /ban [user]: Ban a user
-                    /clearwarnings [user]: Clear all warnings from a user
-                    /unmute [user]: Remove timeout from a user
-                    /unban [user]: Unban a user
+- `/warn [user]` – Issue a warning to a user  
+- `/mute [user]` – Timeout a user  
+- `/unmute [user]` – Remove timeout from a user  
+- `/ban [user]` – Ban a user  
+- `/unban [user]` – Unban a user  
+- `/clearwarnings [user]` – Clear all warnings from a user  
 
-                    **/report [message ID]: Report a message to the bot**
-                    
-                    You can also ping me in a reply to a message to report it.
-                    """
+**Ask the AI:**
+- `@Mod.AI [prompt]: Ask the AI a question
+
+**Report System:**
+- `/report [message ID]` – Report a message to the bot  
+
+You can also ping me in a reply to a message to report it.
+"""
                 )
 
         return
