@@ -1249,7 +1249,8 @@ async def on_message(message):
                 await message.channel.send(answer)
             else:
                 await message.channel.send(
-                    """
+                    
+"""
 I'm here to help!
 
 **Commands List:**
@@ -1262,7 +1263,7 @@ I'm here to help!
 - `/clearwarnings [user]` – Clear all warnings from a user  
 
 **Ask the AI:**
-- `@Mod.AI [prompt]: Ask the AI a question
+- `@Mod.AI [prompt]` – Ask the AI a question  
 
 **Report System:**
 - `/report [message ID]` – Report a message to the bot  
