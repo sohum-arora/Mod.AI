@@ -8,6 +8,23 @@ import datetime
 import asyncio
 from openai import OpenAI
 import os
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive"
+
+def run():
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+keep_alive()
 
 # ================= CONFIG =================
 
@@ -148,6 +165,38 @@ SCAM_PATTERNS = [
     r"tinyurl"
 ]
 
+INSULT_WORDS = [
+    "stupid",
+    "idiot",
+    "moron",
+    "dumbass",
+    "loser",
+    "fatass",
+    "ugly",
+    "worthless",
+    "pathetic",
+    "brainless",
+    "dimwit",
+    "imbecile"
+]
+
+TARGET_WORDS = [
+    "you",
+    "ur",
+    "u ",
+    "he ",
+    "she ",
+    "they ",
+    "him",
+    "her"
+]
+
+def is_direct_insult(content):
+    lowered = content.lower()
+    has_insult = any(word in lowered for word in INSULT_WORDS)
+    has_target = any(t in lowered for t in TARGET_WORDS)
+    return has_insult and has_target
+
 def should_ai_scan(content):
 
     original = content
@@ -241,8 +290,11 @@ TOXIC
 SPAM
 
 Reason must be under 5 words.
-Be EXTREMELY strict for the TOXIC label no toxicity should happen under your watch.
-Especially messages which call users stupid, idiots, etc.
+TOXIC means ANY insult, disrespect, or attack toward a person.
+This includes: calling someone stupid, idiot, dumb, moron, ugly, loser, or any variation.
+Even indirect or mild insults like "ur stupid" or "you're an idiot" = TOXIC.
+Phrases like "ur a stupid idiot" are always TOXIC.
+When in doubt, label TOXIC.
 """
                 },
                 {
@@ -551,6 +603,30 @@ async def on_message(message):
                 )
 
             return
+
+    # ================= DIRECT INSULT FILTER =================
+
+    if is_direct_insult(message.content):
+
+        try:
+            await message.delete()
+        except:
+            pass
+
+        if can_warn(message.author.id):
+
+            warnings = await add_warning(
+                message.author.id
+            )
+
+            await handle_warning_logic(
+                message,
+                message.author,
+                warnings,
+                "Personal insult"
+            )
+
+        return
 
     # ================= AI MODERATION =================
 
