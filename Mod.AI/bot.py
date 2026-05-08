@@ -392,17 +392,12 @@ class ModBot(commands.Bot):
 
 bot = ModBot()
 
-# ================= PREFIX COMMANDS =================
-
 @bot.command(name="warn")
 @commands.has_permissions(moderate_members=True)
-async def warn_prefix(ctx, member: discord.Member, *, reason):
+async def warn_prefix(ctx, member: discord.Member, *, reason="No reason provided"):
 
     if member == ctx.author:
         return await ctx.send("❌ You cannot warn yourself.")
-
-    if member == bot.user:
-        return await ctx.send("❌ Nice try.")
 
     count = await add_warning(member.id)
 
@@ -415,50 +410,65 @@ async def warn_prefix(ctx, member: discord.Member, *, reason):
     )
 
 
-@bot.command(name="warnings")
-@commands.has_permissions(moderate_members=True)
-async def warnings_prefix(ctx, member: discord.Member):
-
-    count = await get_warning_count(member.id)
-
-    await ctx.send(
-        f"⚠️ {member.mention} has **{count}** warning(s)."
-    )
-
-
 @bot.command(name="mute")
 @commands.has_permissions(moderate_members=True)
-async def mute_prefix(ctx, member: discord.Member, duration: int, *, reason):
+async def mute_prefix(
+    ctx,
+    member: discord.Member,
+    duration: int = None,
+    *,
+    reason="No reason provided"
+):
 
     if member == ctx.author:
         return await ctx.send("❌ You cannot mute yourself.")
 
     try:
 
-        until = discord.utils.utcnow() + datetime.timedelta(minutes=duration)
+        # INDEFINITE MUTE
+        if duration is None:
 
-        await member.timeout(until, reason=reason)
+            # Discord requires a timeout duration, so use max timeout (28 days)
+            until = discord.utils.utcnow() + datetime.timedelta(days=28)
 
-        await ctx.send(
-            f"🔇 {member.mention} has been muted for **{duration}m**.\nReason: {reason}"
-        )
+            await member.timeout(
+                until,
+                reason=f"[Indefinite] {reason}"
+            )
+
+            await ctx.send(
+                f"🔇 {member.mention} muted indefinitely.\nReason: {reason}"
+            )
+
+            action_text = "timed out indefinitely"
+
+        else:
+
+            until = discord.utils.utcnow() + datetime.timedelta(minutes=duration)
+
+            await member.timeout(until, reason=reason)
+
+            await ctx.send(
+                f"🔇 {member.mention} muted for {duration}m.\nReason: {reason}"
+            )
+
+            action_text = f"timed out for {duration}m"
 
         await log_action(
             ctx.guild,
-            f"{member} | timed out {duration}m | {reason} | by {ctx.author}"
+            f"{member} | {action_text} | {reason} | by {ctx.author}"
         )
 
         await store_action(
             ctx.guild.id,
             f"{member} ({member.id})",
-            f"timed out for {duration}m",
+            action_text,
             reason,
             str(ctx.author)
         )
 
     except discord.Forbidden:
         await ctx.send("❌ Cannot mute user. Check role hierarchy.")
-
 
 @bot.command(name="unmute")
 @commands.has_permissions(moderate_members=True)
@@ -469,29 +479,16 @@ async def unmute_prefix(ctx, member: discord.Member):
         await member.timeout(None)
 
         await ctx.send(
-            f"🔊 {member.mention}'s timeout has been removed."
-        )
-
-        await log_action(
-            ctx.guild,
-            f"{member} | timeout removed | by {ctx.author}"
-        )
-
-        await store_action(
-            ctx.guild.id,
-            f"{member} ({member.id})",
-            "unmuted",
-            "Manual unmute",
-            str(ctx.author)
+            f"🔊 {member.mention} unmuted."
         )
 
     except discord.Forbidden:
-        await ctx.send("❌ Cannot unmute user. Check role hierarchy.")
+        await ctx.send("❌ Cannot unmute user.")
 
 
 @bot.command(name="kick")
 @commands.has_permissions(kick_members=True)
-async def kick_prefix(ctx, member: discord.Member, *, reason):
+async def kick_prefix(ctx, member: discord.Member, *, reason="No reason provided"):
 
     if member == ctx.author:
         return await ctx.send("❌ You cannot kick yourself.")
@@ -501,29 +498,16 @@ async def kick_prefix(ctx, member: discord.Member, *, reason):
         await member.kick(reason=reason)
 
         await ctx.send(
-            f"👢 {member.mention} has been kicked.\nReason: {reason}"
-        )
-
-        await log_action(
-            ctx.guild,
-            f"{member} | kicked | {reason} | by {ctx.author}"
-        )
-
-        await store_action(
-            ctx.guild.id,
-            f"{member} ({member.id})",
-            "kicked",
-            reason,
-            str(ctx.author)
+            f"👢 {member.mention} kicked.\nReason: {reason}"
         )
 
     except discord.Forbidden:
-        await ctx.send("❌ Cannot kick user. Check role hierarchy.")
+        await ctx.send("❌ Cannot kick user.")
 
 
 @bot.command(name="ban")
 @commands.has_permissions(ban_members=True)
-async def ban_prefix(ctx, member: discord.Member, *, reason):
+async def ban_prefix(ctx, member: discord.Member, *, reason="No reason provided"):
 
     if member == ctx.author:
         return await ctx.send("❌ You cannot ban yourself.")
@@ -533,50 +517,11 @@ async def ban_prefix(ctx, member: discord.Member, *, reason):
         await member.ban(reason=reason)
 
         await ctx.send(
-            f"🔨 {member.mention} has been banned.\nReason: {reason}"
-        )
-
-        await log_action(
-            ctx.guild,
-            f"{member} | banned | {reason} | by {ctx.author}"
-        )
-
-        await store_action(
-            ctx.guild.id,
-            f"{member} ({member.id})",
-            "banned permanently",
-            reason,
-            str(ctx.author)
+            f"🔨 {member.mention} banned.\nReason: {reason}"
         )
 
     except discord.Forbidden:
-        await ctx.send("❌ Cannot ban user. Check role hierarchy.")
-
-
-@bot.command(name="clearwarnings")
-@commands.has_permissions(administrator=True)
-async def clearwarnings_prefix(ctx, member: discord.Member):
-
-    async with aiosqlite.connect("modbot.db") as db:
-        await db.execute(
-            "DELETE FROM warnings WHERE user_id=?",
-            (member.id,)
-        )
-
-        await db.commit()
-
-    await ctx.send(
-        f"✅ Cleared warnings for {member.mention}"
-    )
-
-    await store_action(
-        ctx.guild.id,
-        f"{member} ({member.id})",
-        "warnings cleared",
-        "Manual clear",
-        str(ctx.author)
-    )
-
+        await ctx.send("❌ Cannot ban user.")
 # ================= DATABASE =================
 
 async def init_db():
@@ -1438,7 +1383,7 @@ async def on_message(message):
 
     # ================= BOT MENTION HANDLING =================
 
-    if bot.user in message.mentions:
+    if bot.user in message.mentions and not message.content.startswith(("!", "?")):
 
         if message.reference and message.reference.message_id:
 
