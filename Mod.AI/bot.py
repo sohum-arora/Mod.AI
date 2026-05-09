@@ -10,6 +10,7 @@ import asyncio
 from openai import OpenAI
 import os
 import json
+import aiohttp
 
 from flask import (
     Flask,
@@ -1779,6 +1780,442 @@ You can also ping me in a reply to a message to report it.
             return
 
     await bot.process_commands(message)
+
+    # ================= FTCSCOUT API =================
+# Add `import aiohttp` to your imports at the top of main.py
+# Then paste everything below into main.py before the `bot.run(TOKEN)` line
+
+import aiohttp  # <-- add this to your top-level imports
+
+FTCSCOUT_URL = "https://api.ftcscout.org/graphql"
+CURRENT_SEASON = 2025  # 2025-2026 season (Worlds 2026)
+
+async def ftcscout_query(query: str, variables: dict = None) -> dict:
+    """Send a GraphQL query to FTCScout and return parsed JSON."""
+    async with aiohttp.ClientSession() as session:
+        payload = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        async with session.post(
+            FTCSCOUT_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        ) as resp:
+            return await resp.json()
+
+
+# ================= /team =================
+
+@bot.tree.command(name="team", description="Look up an FTC team's stats for the current season")
+@app_commands.describe(number="FTC team number", season="Season year (default: 2025)")
+async def ftc_team(
+    interaction: discord.Interaction,
+    number: int,
+    season: int = CURRENT_SEASON
+):
+    await interaction.response.defer()
+
+    query = """
+    query TeamLookup($number: Int!, $season: Int!) {
+      teamByNumber(number: $number) {
+        number
+        name
+        schoolName
+        city
+        state
+        country
+        rookieYear
+        events(season: $season) {
+          event {
+            name
+            start
+            type
+            code
+          }
+          stats {
+            ... on TeamEventStats2024 {
+              rank
+              rp
+              wins
+              losses
+              ties
+              opr {
+                totalPointsNp
+                autoPoints
+                dcPoints
+                egPoints
+              }
+            }
+            ... on TeamEventStats2025 {
+              rank
+              rp
+              wins
+              losses
+              ties
+              opr {
+                totalPointsNp
+                autoPoints
+                dcPoints
+                egPoints
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    try:
+        data = await ftcscout_query(query, {"number": number, "season": season})
+        team = data.get("data", {}).get("teamByNumber")
+    except Exception as e:
+        return await interaction.followup.send(f"❌ API error: {e}")
+
+    if not team:
+        return await interaction.followup.send(f"❌ Team `{number}` not found.")
+
+    location_parts = [p for p in [team.get("city"), team.get("state"), team.get("country")] if p]
+    location = ", ".join(location_parts) or "Unknown"
+
+    embed = discord.Embed(
+        title=f"🤖 #{team['number']} — {team['name']}",
+        color=0x5865F2
+    )
+    embed.add_field(name="School", value=team.get("schoolName") or "N/A", inline=True)
+    embed.add_field(name="Location", value=location, inline=True)
+    embed.add_field(name="Rookie Year", value=str(team.get("rookieYear") or "N/A"), inline=True)
+
+    events = team.get("events", [])
+
+    if not events:
+        embed.add_field(
+            name=f"Season {season}",
+            value="No events found for this season.",
+            inline=False
+        )
+    else:
+        best_opr = None
+        event_lines = []
+
+        for entry in events:
+            ev = entry.get("event", {})
+            stats = entry.get("stats")
+
+            ev_name = ev.get("name", "Unknown Event")
+            ev_type = ev.get("type", "")
+            ev_date = (ev.get("start") or "")[:10]
+
+            if stats:
+                rank   = stats.get("rank", "?")
+                wins   = stats.get("wins", 0)
+                losses = stats.get("losses", 0)
+                ties   = stats.get("ties", 0)
+                opr_obj = stats.get("opr") or {}
+                opr    = opr_obj.get("totalPointsNp", 0)
+                auto   = opr_obj.get("autoPoints", 0)
+                dc     = opr_obj.get("dcPoints", 0)
+                eg     = opr_obj.get("egPoints", 0)
+
+                if best_opr is None or opr > best_opr[0]:
+                    best_opr = (opr, ev_name)
+
+                line = (
+                    f"**{ev_name}** ({ev_date})\n"
+                    f"Rank: `#{rank}` | Record: `{wins}-{losses}-{ties}`\n"
+                    f"OPR: `{opr:.1f}` (Auto `{auto:.1f}` + TeleOp `{dc:.1f}` + End `{eg:.1f}`)"
+                )
+            else:
+                line = f"**{ev_name}** ({ev_date})\n*No stats available*"
+
+            event_lines.append(line)
+
+        embed.add_field(
+            name=f"📅 Season {season} Events ({len(events)})",
+            value="\n\n".join(event_lines) or "None",
+            inline=False
+        )
+
+        if best_opr:
+            embed.set_footer(text=f"Peak OPR: {best_opr[0]:.1f} at {best_opr[1]}")
+
+    embed.set_thumbnail(url=f"https://www.firstinspires.org/sites/default/files/uploads/resource_library/ftc/FTC-icon.png")
+    await interaction.followup.send(embed=embed)
+
+
+# ================= /event =================
+
+@bot.tree.command(name="event", description="Look up FTC event rankings")
+@app_commands.describe(code="Event code (e.g. USMDCMPBIO1)", season="Season year (default: 2025)")
+async def ftc_event(
+    interaction: discord.Interaction,
+    code: str,
+    season: int = CURRENT_SEASON
+):
+    await interaction.response.defer()
+
+    query = """
+    query EventLookup($code: String!, $season: Int!) {
+      eventByCode(code: $code, season: $season) {
+        name
+        start
+        end
+        city
+        state
+        country
+        type
+        teams {
+          team {
+            number
+            name
+          }
+          stats {
+            ... on TeamEventStats2024 {
+              rank
+              wins
+              losses
+              ties
+              rp
+              opr {
+                totalPointsNp
+              }
+            }
+            ... on TeamEventStats2025 {
+              rank
+              wins
+              losses
+              ties
+              rp
+              opr {
+                totalPointsNp
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    try:
+        data = await ftcscout_query(query, {"code": code.upper(), "season": season})
+        event = data.get("data", {}).get("eventByCode")
+    except Exception as e:
+        return await interaction.followup.send(f"❌ API error: {e}")
+
+    if not event:
+        return await interaction.followup.send(f"❌ Event `{code}` not found for season {season}.")
+
+    location_parts = [p for p in [event.get("city"), event.get("state"), event.get("country")] if p]
+    location = ", ".join(location_parts) or "Unknown"
+    start = (event.get("start") or "")[:10]
+    end   = (event.get("end")   or "")[:10]
+
+    embed = discord.Embed(
+        title=f"🏆 {event['name']}",
+        description=f"📍 {location} | 📅 {start} → {end}",
+        color=0xf0a500
+    )
+
+    teams = event.get("teams", [])
+
+    # Sort by rank
+    def get_rank(entry):
+        stats = entry.get("stats") or {}
+        return stats.get("rank") or 9999
+
+    teams_sorted = sorted(teams, key=get_rank)
+
+    ranking_lines = []
+    for entry in teams_sorted[:20]:  # top 20 to avoid embed overflow
+        team  = entry.get("team", {})
+        stats = entry.get("stats") or {}
+
+        rank   = stats.get("rank", "?")
+        wins   = stats.get("wins", 0)
+        losses = stats.get("losses", 0)
+        ties   = stats.get("ties", 0)
+        opr_v  = (stats.get("opr") or {}).get("totalPointsNp", 0)
+        rp     = stats.get("rp", 0)
+
+        medal = ""
+        if rank == 1:   medal = "🥇 "
+        elif rank == 2: medal = "🥈 "
+        elif rank == 3: medal = "🥉 "
+
+        ranking_lines.append(
+            f"{medal}`#{rank:>2}` **{team.get('number')} {team.get('name', '')}** "
+            f"— `{wins}-{losses}-{ties}` | OPR `{opr_v:.1f}` | RP `{rp}`"
+        )
+
+    if ranking_lines:
+        # Discord embed field max 1024 chars — split if needed
+        chunk = "\n".join(ranking_lines)
+        if len(chunk) <= 1024:
+            embed.add_field(name=f"📊 Rankings (Top {len(ranking_lines)})", value=chunk, inline=False)
+        else:
+            mid = len(ranking_lines) // 2
+            embed.add_field(name=f"📊 Rankings (1–{mid})", value="\n".join(ranking_lines[:mid]), inline=False)
+            embed.add_field(name=f"Rankings ({mid+1}–{len(ranking_lines)})", value="\n".join(ranking_lines[mid:]), inline=False)
+    else:
+        embed.add_field(name="Rankings", value="No ranking data available yet.", inline=False)
+
+    embed.set_footer(text=f"Event code: {code.upper()} | Season {season} | {len(teams)} teams")
+    await interaction.followup.send(embed=embed)
+
+
+# ================= /compare =================
+
+@bot.tree.command(name="compare", description="Compare two FTC teams head-to-head")
+@app_commands.describe(
+    team1="First team number",
+    team2="Second team number",
+    season="Season year (default: 2025)"
+)
+async def ftc_compare(
+    interaction: discord.Interaction,
+    team1: int,
+    team2: int,
+    season: int = CURRENT_SEASON
+):
+    await interaction.response.defer()
+
+    query = """
+    query TeamLookup($number: Int!, $season: Int!) {
+      teamByNumber(number: $number) {
+        number
+        name
+        events(season: $season) {
+          stats {
+            ... on TeamEventStats2024 {
+              rank
+              wins
+              losses
+              opr { totalPointsNp autoPoints dcPoints egPoints }
+            }
+            ... on TeamEventStats2025 {
+              rank
+              wins
+              losses
+              opr { totalPointsNp autoPoints dcPoints egPoints }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    try:
+        d1, d2 = await asyncio.gather(
+            ftcscout_query(query, {"number": team1, "season": season}),
+            ftcscout_query(query, {"number": team2, "season": season})
+        )
+        t1 = d1.get("data", {}).get("teamByNumber")
+        t2 = d2.get("data", {}).get("teamByNumber")
+    except Exception as e:
+        return await interaction.followup.send(f"❌ API error: {e}")
+
+    if not t1:
+        return await interaction.followup.send(f"❌ Team `{team1}` not found.")
+    if not t2:
+        return await interaction.followup.send(f"❌ Team `{team2}` not found.")
+
+    def best_stats(team_data):
+        """Return the stats entry with highest OPR across all events."""
+        best = None
+        for entry in team_data.get("events", []):
+            stats = entry.get("stats")
+            if not stats:
+                continue
+            opr = (stats.get("opr") or {}).get("totalPointsNp", 0)
+            if best is None or opr > (best.get("opr") or {}).get("totalPointsNp", 0):
+                best = stats
+        return best
+
+    s1 = best_stats(t1)
+    s2 = best_stats(t2)
+
+    def fmt_stats(stats):
+        if not stats:
+            return {"opr": 0, "auto": 0, "dc": 0, "eg": 0, "wins": 0, "losses": 0, "rank": "N/A"}
+        opr_obj = stats.get("opr") or {}
+        return {
+            "opr":    opr_obj.get("totalPointsNp", 0),
+            "auto":   opr_obj.get("autoPoints", 0),
+            "dc":     opr_obj.get("dcPoints", 0),
+            "eg":     opr_obj.get("egPoints", 0),
+            "wins":   stats.get("wins", 0),
+            "losses": stats.get("losses", 0),
+            "rank":   stats.get("rank", "N/A"),
+        }
+
+    f1 = fmt_stats(s1)
+    f2 = fmt_stats(s2)
+
+    def winner(a, b, key, low_is_better=False):
+        """Return bold marker for the better value."""
+        if a[key] == b[key]:
+            return "➖", "➖"
+        if low_is_better:
+            return ("✅", "❌") if a[key] < b[key] else ("❌", "✅")
+        return ("✅", "❌") if a[key] > b[key] else ("❌", "✅")
+
+    opr_w  = winner(f1, f2, "opr")
+    auto_w = winner(f1, f2, "auto")
+    dc_w   = winner(f1, f2, "dc")
+    eg_w   = winner(f1, f2, "eg")
+    win_w  = winner(f1, f2, "wins")
+    rank_w = winner(f1, f2, "rank", low_is_better=True)
+
+    # Simple OPR-based win probability
+    total_opr = f1["opr"] + f2["opr"]
+    if total_opr > 0:
+        wp1 = f1["opr"] / total_opr * 100
+        wp2 = f2["opr"] / total_opr * 100
+    else:
+        wp1 = wp2 = 50.0
+
+    embed = discord.Embed(
+        title=f"⚔️ #{t1['number']} {t1['name']} vs #{t2['number']} {t2['name']}",
+        description=f"Season {season} | Best-event stats comparison",
+        color=0xe74c3c
+    )
+
+    embed.add_field(
+        name=f"#{t1['number']} {t1['name']}",
+        value=(
+            f"{opr_w[0]} OPR: `{f1['opr']:.1f}`\n"
+            f"{auto_w[0]} Auto: `{f1['auto']:.1f}`\n"
+            f"{dc_w[0]} TeleOp: `{f1['dc']:.1f}`\n"
+            f"{eg_w[0]} Endgame: `{f1['eg']:.1f}`\n"
+            f"{win_w[0]} Record: `{f1['wins']}-{f1['losses']}`\n"
+            f"{rank_w[0]} Best Rank: `#{f1['rank']}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name=f"#{t2['number']} {t2['name']}",
+        value=(
+            f"{opr_w[1]} OPR: `{f2['opr']:.1f}`\n"
+            f"{auto_w[1]} Auto: `{f2['auto']:.1f}`\n"
+            f"{dc_w[1]} TeleOp: `{f2['dc']:.1f}`\n"
+            f"{eg_w[1]} Endgame: `{f2['eg']:.1f}`\n"
+            f"{win_w[1]} Record: `{f2['wins']}-{f2['losses']}`\n"
+            f"{rank_w[1]} Best Rank: `#{f2['rank']}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="📊 Win Probability (OPR-based)",
+        value=(
+            f"**#{t1['number']}**: `{wp1:.1f}%` {'🟢' if wp1 > wp2 else '🔴'}\n"
+            f"**#{t2['number']}**: `{wp2:.1f}%` {'🟢' if wp2 > wp1 else '🔴'}"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Win probability is OPR-based — use as a rough estimate only")
+    await interaction.followup.send(embed=embed)
 
 # ================= RUN =================
 
