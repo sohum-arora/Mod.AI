@@ -101,7 +101,7 @@ def home():
         </html>
         """
 
-    return redirect("/dashboard")
+    return redirect("/servers")
 
 
 @app.route("/login")
@@ -161,9 +161,9 @@ def callback():
     user_json = user_response.json()
 
     session["user"] = {
-    "id": user_json["id"],
-    "username": user_json["username"],
-    "avatar": user_json.get("avatar")
+        "id": user_json["id"],
+        "username": user_json["username"],
+        "avatar": user_json.get("avatar")
     }
 
     session["access_token"] = access_token
@@ -226,6 +226,21 @@ DASHBOARD_HTML = """
             justify-content: space-between;
             align-items: center;
             margin-bottom: 25px;
+        }}
+
+        .topbar-left {{
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }}
+
+        .back-btn {{
+            background: #1f2430;
+            color: white;
+            text-decoration: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: bold;
         }}
 
         .logout-btn {{
@@ -346,6 +361,12 @@ DASHBOARD_HTML = """
             font-size: 13px;
         }}
 
+        .guild-label {{
+            color: #9aa3b2;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }}
+
     </style>
 
 </head>
@@ -356,7 +377,13 @@ DASHBOARD_HTML = """
 
         <div class="topbar">
 
-            <h1>🛡️ Mod.AI Dashboard</h1>
+            <div class="topbar-left">
+                <a class="back-btn" href="/servers">← Servers</a>
+                <div>
+                    <div class="guild-label">Server ID: {guild_id_label}</div>
+                    <h1 style="margin:0">🛡️ Mod.AI Dashboard</h1>
+                </div>
+            </div>
 
             <a class="logout-btn" href="/logout">
                 Logout
@@ -437,28 +464,47 @@ DASHBOARD_HTML = """
 """
 
 
-@app.route('/dashboard')
-def dashboard():
+def build_dashboard(guild_id=None):
+    """Shared dashboard builder. Filters by guild_id if provided."""
     try:
         conn = sqlite3.connect("modbot.db")
         c = conn.cursor()
 
-        c.execute("SELECT COUNT(*) FROM mod_actions")
+        if guild_id:
+            c.execute("SELECT COUNT(*) FROM mod_actions WHERE guild_id=?", (guild_id,))
+        else:
+            c.execute("SELECT COUNT(*) FROM mod_actions")
         total_actions = c.fetchone()[0]
 
+        # Warnings are global per user (no guild_id in schema), show all
         c.execute("SELECT COUNT(*) FROM warnings")
         warned_users = c.fetchone()[0]
 
-        c.execute("SELECT COUNT(*) FROM mod_actions WHERE action LIKE '%ban%'")
+        if guild_id:
+            c.execute("SELECT COUNT(*) FROM mod_actions WHERE action LIKE '%ban%' AND guild_id=?", (guild_id,))
+        else:
+            c.execute("SELECT COUNT(*) FROM mod_actions WHERE action LIKE '%ban%'")
         total_bans = c.fetchone()[0]
 
-        c.execute("SELECT COUNT(*) FROM mod_actions WHERE action LIKE '%timed out%' OR action LIKE '%timeout%' OR action LIKE '%mute%'")
+        if guild_id:
+            c.execute(
+                "SELECT COUNT(*) FROM mod_actions WHERE (action LIKE '%timed out%' OR action LIKE '%timeout%' OR action LIKE '%mute%') AND guild_id=?",
+                (guild_id,)
+            )
+        else:
+            c.execute("SELECT COUNT(*) FROM mod_actions WHERE action LIKE '%timed out%' OR action LIKE '%timeout%' OR action LIKE '%mute%'")
         total_timeouts = c.fetchone()[0]
 
         c.execute("SELECT user_id, count FROM warnings ORDER BY count DESC LIMIT 10")
         top_warned = c.fetchall()
 
-        c.execute("SELECT timestamp, target_user, action, reason, moderator FROM mod_actions ORDER BY id DESC LIMIT 30")
+        if guild_id:
+            c.execute(
+                "SELECT timestamp, target_user, action, reason, moderator FROM mod_actions WHERE guild_id=? ORDER BY id DESC LIMIT 30",
+                (guild_id,)
+            )
+        else:
+            c.execute("SELECT timestamp, target_user, action, reason, moderator FROM mod_actions ORDER BY id DESC LIMIT 30")
         recent_actions = c.fetchall()
 
         conn.close()
@@ -480,6 +526,7 @@ def dashboard():
             actions_rows = "<tr><td colspan='5' class='empty'>No actions yet.</td></tr>"
 
         html = DASHBOARD_HTML.format(
+            guild_id_label=str(guild_id) if guild_id else "All Servers",
             total_actions=total_actions,
             warned_users=warned_users,
             total_bans=total_bans,
@@ -493,20 +540,54 @@ def dashboard():
     except Exception as e:
         return f"Dashboard error: {e}"
 
+
+@app.route('/dashboard')
+def dashboard():
+    if "user" not in session:
+        return redirect("/")
+    return build_dashboard()
+
+
+# FIX: This route was missing — server cards linked here but got 404
+@app.route('/dashboard/<int:guild_id>')
+def dashboard_guild(guild_id):
+    if "user" not in session:
+        return redirect("/")
+
+    # Verify the user actually has admin in this guild before showing data
+    try:
+        user_guilds = requests.get(
+            "https://discord.com/api/users/@me/guilds",
+            headers={"Authorization": f"Bearer {session['access_token']}"}
+        ).json()
+
+        authorized = any(
+            str(g["id"]) == str(guild_id) and (int(g.get("permissions", 0)) & 0x8)
+            for g in user_guilds
+        )
+
+        if not authorized:
+            return "❌ You don't have admin access to that server.", 403
+
+    except Exception as e:
+        return f"Auth check failed: {e}", 500
+
+    return build_dashboard(guild_id=guild_id)
+
+
 @app.route("/servers")
 def servers():
 
     if "user" not in session:
         return redirect("/")
 
-    access_token = request.cookies.get("access_token")
-
-    user_guilds = requests.get(
-        "https://discord.com/api/users/@me/guilds",
-        headers={
-            "Authorization": f"Bearer {session['access_token']}"
-        }
-    ).json()
+    try:
+        user_guilds = requests.get(
+            "https://discord.com/api/users/@me/guilds",
+            headers={"Authorization": f"Bearer {session['access_token']}"}
+        ).json()
+    except Exception as e:
+        return f"Failed to fetch guilds: {e}"
 
     guild_cards = ""
 
@@ -514,28 +595,23 @@ def servers():
 
         permissions = int(guild.get("permissions", 0))
 
-        # ADMINISTRATOR PERMISSION
         if permissions & 0x8:
 
-            icon_url = ""
-
-            if guild.get("icon"):
-                icon_url = (
-                    f"https://cdn.discordapp.com/icons/"
-                    f"{guild['id']}/{guild['icon']}.png"
-                )
+            icon_url = (
+                f"https://cdn.discordapp.com/icons/{guild['id']}/{guild['icon']}.png"
+                if guild.get("icon") else
+                "https://cdn.discordapp.com/embed/avatars/0.png"
+            )
 
             guild_cards += f"""
             <a class="server-card" href="/dashboard/{guild['id']}">
-
-                <img src="{icon_url}" class="server-icon">
-
-                <div class="server-name">
-                    {guild['name']}
-                </div>
-
+                <img src="{icon_url}" class="server-icon" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                <div class="server-name">{guild['name']}</div>
             </a>
             """
+
+    if not guild_cards:
+        guild_cards = "<p style='color:#9aa3b2'>No servers found where you have admin permissions.</p>"
 
     return f"""
     <html>
@@ -560,8 +636,24 @@ def servers():
                 padding: 40px;
             }}
 
-            h1 {{
+            .topbar {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
                 margin-bottom: 30px;
+            }}
+
+            h1 {{
+                margin: 0;
+            }}
+
+            .logout-btn {{
+                background: #ff4d4d;
+                color: white;
+                text-decoration: none;
+                padding: 10px 18px;
+                border-radius: 8px;
+                font-weight: bold;
             }}
 
             .grid {{
@@ -579,11 +671,13 @@ def servers():
                 color: white;
                 transition: 0.2s;
                 text-align: center;
+                cursor: pointer;
             }}
 
             .server-card:hover {{
                 transform: translateY(-4px);
                 background: #171b25;
+                border-color: #5865F2;
             }}
 
             .server-icon {{
@@ -591,6 +685,7 @@ def servers():
                 height: 80px;
                 border-radius: 50%;
                 margin-bottom: 15px;
+                object-fit: cover;
             }}
 
             .server-name {{
@@ -606,12 +701,13 @@ def servers():
 
         <div class="container">
 
-            <h1>Select a Server</h1>
+            <div class="topbar">
+                <h1>🛡️ Select a Server</h1>
+                <a class="logout-btn" href="/logout">Logout</a>
+            </div>
 
             <div class="grid">
-
                 {guild_cards}
-
             </div>
 
         </div>
@@ -669,7 +765,6 @@ BASE_URL = "https://integrate.api.nvidia.com/v1"
 LOG_CHANNEL_NAME = "mod-logs"
 
 keep_alive()
-
 
 
 # ================= AI CLIENT =================
@@ -738,47 +833,20 @@ async def mute_prefix(
 
     try:
 
-        # INDEFINITE MUTE
         if duration is None:
-
-            # Discord requires a timeout duration, so use max timeout (28 days)
             until = discord.utils.utcnow() + datetime.timedelta(days=28)
-
-            await member.timeout(
-                until,
-                reason=f"[Indefinite] {reason}"
-            )
-
-            await ctx.send(
-                f"🔇 {member.mention} muted indefinitely.\nReason: {reason}"
-            )
-
+            await member.timeout(until, reason=f"[Indefinite] {reason}")
+            await ctx.send(f"🔇 {member.mention} muted indefinitely.\nReason: {reason}")
             action_text = "timed out indefinitely"
 
         else:
-
             until = discord.utils.utcnow() + datetime.timedelta(minutes=duration)
-
             await member.timeout(until, reason=reason)
-
-            await ctx.send(
-                f"🔇 {member.mention} muted for {duration}m.\nReason: {reason}"
-            )
-
+            await ctx.send(f"🔇 {member.mention} muted for {duration}m.\nReason: {reason}")
             action_text = f"timed out for {duration}m"
 
-        await log_action(
-            ctx.guild,
-            f"{member} | {action_text} | {reason} | by {ctx.author}"
-        )
-
-        await store_action(
-            ctx.guild.id,
-            f"{member} ({member.id})",
-            action_text,
-            reason,
-            str(ctx.author)
-        )
+        await log_action(ctx.guild, f"{member} | {action_text} | {reason} | by {ctx.author}")
+        await store_action(ctx.guild.id, f"{member} ({member.id})", action_text, reason, str(ctx.author))
 
     except discord.Forbidden:
         await ctx.send("❌ Cannot mute user. Check role hierarchy.")
@@ -788,13 +856,8 @@ async def mute_prefix(
 async def unmute_prefix(ctx, member: discord.Member):
 
     try:
-
         await member.timeout(None)
-
-        await ctx.send(
-            f"🔊 {member.mention} unmuted."
-        )
-
+        await ctx.send(f"🔊 {member.mention} unmuted.")
     except discord.Forbidden:
         await ctx.send("❌ Cannot unmute user.")
 
@@ -807,13 +870,8 @@ async def kick_prefix(ctx, member: discord.Member, *, reason="No reason provided
         return await ctx.send("❌ You cannot kick yourself.")
 
     try:
-
         await member.kick(reason=reason)
-
-        await ctx.send(
-            f"👢 {member.mention} kicked.\nReason: {reason}"
-        )
-
+        await ctx.send(f"👢 {member.mention} kicked.\nReason: {reason}")
     except discord.Forbidden:
         await ctx.send("❌ Cannot kick user.")
 
@@ -826,15 +884,11 @@ async def ban_prefix(ctx, member: discord.Member, *, reason="No reason provided"
         return await ctx.send("❌ You cannot ban yourself.")
 
     try:
-
         await member.ban(reason=reason)
-
-        await ctx.send(
-            f"🔨 {member.mention} banned.\nReason: {reason}"
-        )
-
+        await ctx.send(f"🔨 {member.mention} banned.\nReason: {reason}")
     except discord.Forbidden:
         await ctx.send("❌ Cannot ban user.")
+
 # ================= DATABASE =================
 
 async def init_db():
@@ -873,11 +927,7 @@ async def add_warning(user_id):
 
     async with aiosqlite.connect("modbot.db") as db:
 
-        cursor = await db.execute(
-            "SELECT count FROM warnings WHERE user_id=?",
-            (user_id,)
-        )
-
+        cursor = await db.execute("SELECT count FROM warnings WHERE user_id=?", (user_id,))
         row = await cursor.fetchone()
         new_count = (row[0] + 1) if row else 1
 
@@ -893,11 +943,7 @@ async def get_warning_count(user_id):
 
     async with aiosqlite.connect("modbot.db") as db:
 
-        cursor = await db.execute(
-            "SELECT count FROM warnings WHERE user_id=?",
-            (user_id,)
-        )
-
+        cursor = await db.execute("SELECT count FROM warnings WHERE user_id=?", (user_id,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 
@@ -930,11 +976,7 @@ async def get_rules(guild_id):
 
     async with aiosqlite.connect("modbot.db") as db:
 
-        cursor = await db.execute(
-            "SELECT rules_text FROM rules WHERE guild_id=?",
-            (guild_id,)
-        )
-
+        cursor = await db.execute("SELECT rules_text FROM rules WHERE guild_id=?", (guild_id,))
         row = await cursor.fetchone()
 
         if row:
@@ -970,7 +1012,6 @@ def record_message(user_id, content, message_obj):
 
     user_message_buffer[user_id].append((now, content, message_obj))
 
-    # Keep only messages from last 4 seconds
     user_message_buffer[user_id] = [
         (t, c, m) for t, c, m in user_message_buffer[user_id]
         if now - t <= 4.0
@@ -978,7 +1019,6 @@ def record_message(user_id, content, message_obj):
 
     recent = user_message_buffer[user_id]
 
-    # Burst = 3+ messages where the gap between first and third is under 1.5s
     if len(recent) >= 3:
         times = [t for t, c, m in recent]
         if times[-1] - times[-3] < 1.5:
@@ -1004,9 +1044,7 @@ def check_spam_ai(messages):
 
     try:
 
-        numbered = "\n".join(
-            f'{i+1}. "{m}"' for i, m in enumerate(messages)
-        )
+        numbered = "\n".join(f'{i+1}. "{m}"' for i, m in enumerate(messages))
 
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -1061,30 +1099,15 @@ SCAM_PATTERNS = [
     r"tinyurl"
 ]
 
-INSULT_WORDS = [
-    "stupid",
-    "idiot",
-    "moron",
+# Only hard, clearly offensive insults (not casual ones like stupid/idiot)
+HARD_INSULT_WORDS = [
     "dumbass",
-    "loser",
     "fatass",
-    "ugly",
     "worthless",
     "pathetic",
     "brainless",
     "dimwit",
     "imbecile"
-]
-
-TARGET_WORDS = [
-    "you",
-    "ur",
-    "u ",
-    "he ",
-    "she ",
-    "they ",
-    "him",
-    "her"
 ]
 
 QUOTE_INDICATORS = [
@@ -1098,100 +1121,94 @@ QUOTE_INDICATORS = [
 ]
 
 def is_direct_insult(content):
+    """
+    FIX: Only triggers on clear YOU-directed hard attacks.
+    - Removed third-person pronouns (he/she/they) from targeting — 'he's an idiot' is gossip, not an attack.
+    - Removed mild words (stupid, idiot, moron, loser, ugly) from the hard-insult list.
+    - Kept only explicit you-directed slurs and hard insult combos.
+    - 'my family sucks', 'he's an idiot' — all pass through safely.
+    """
     lowered = content.lower()
 
     # Ignore quoted/reported speech
     if any(indicator in lowered for indicator in QUOTE_INDICATORS):
         return False
 
-    # Ignore quotation marks
+    # Ignore content inside quotation marks
     if re.search(r'["\'].{3,80}["\']', lowered):
         return False
 
-    insult_patterns = [
-        r"\byou('?re| are)?\s+(a\s+)?(stupid|idiot|moron|loser|retard|dumbass|fatass|ugly|worthless|pathetic|brainless|imbecile)\b",
-        r"\b(fuck you|you suck|kill yourself|kys)\b",
-        r"\b(shut up)\b",
+    # Only explicit, unambiguous YOU-directed attacks
+    explicit_patterns = [
+        r"\b(fuck you|you suck|kill yourself)\b",
+        r"\byou('?re| are)\s+(a\s+)?(dumbass|fatass|worthless|pathetic|brainless|imbecile)\b",
+        r"\b(shut the fuck up)\b",
     ]
 
-    for pattern in insult_patterns:
-        if re.search(pattern, lowered):
-            return True
-
-    has_insult = any(word in lowered for word in INSULT_WORDS)
-    has_target = any(t in lowered for t in TARGET_WORDS)
-
-    return has_insult and has_target
-
-def should_ai_scan(content):
-    lowered = content.lower().strip()
-
-    # Ignore extremely short harmless messages
-    if len(lowered) < 4:
-        return False
-
-    suspicious_keywords = [
-        "kill yourself", "kys",
-        "stupid", "idiot", "retard",
-        "dumbass", "bitch", "fuck you",
-        "moron", "loser", "hate you",
-        "die", "racist", "nazi",
-        "fatass", "ugly", "worthless",
-        "pathetic", "dickhead", "asshole",
-        "clown", "dumb", "trash"
-    ]
-
-    # Immediate trigger keywords
-    if any(word in lowered for word in suspicious_keywords):
-        return True
-
-    # Aggressive profanity combos
-    aggressive_words = [
-        "fuck", "shit", "bitch",
-        "asshole", "retard", "idiot",
-        "moron", "loser"
-    ]
-
-    aggression_score = sum(
-        lowered.count(word) for word in aggressive_words
-    )
-
-    if aggression_score >= 1:
-        return True
-
-    # Excessive caps
-    letters = sum(c.isalpha() for c in content)
-    caps = sum(c.isupper() for c in content)
-
-    if letters >= 6:
-        cap_ratio = caps / letters
-        if cap_ratio > 0.55:
-            return True
-
-    # Spam punctuation
-    if lowered.count("!") >= 3:
-        return True
-
-    if lowered.count("?") >= 4:
-        return True
-
-    # Toxic sentence structures
-    toxic_patterns = [
-        r"\byou\s+(are|re)\s+\w+",
-        r"\bi\s+hate\s+you\b",
-        r"\bno\s+one\s+likes\s+you\b",
-        r"\byou\s+suck\b",
-        r"\bshut\s+the\s+fuck\s+up\b",
-    ]
-
-    for pattern in toxic_patterns:
+    for pattern in explicit_patterns:
         if re.search(pattern, lowered):
             return True
 
     return False
+
+def should_ai_scan(content):
+    """
+    FIX: Raised the bar significantly.
+    - Mild words like 'stupid', 'idiot', 'dumb', 'moron', 'loser' alone no longer trigger AI scan.
+    - Only trigger on hard slurs, explicit threats, or clear combos.
+    - Casual venting ('this is so stupid', 'my family sucks', 'he's an idiot') won't waste an AI call.
+    """
+    lowered = content.lower().strip()
+
+    if len(lowered) < 4:
+        return False
+
+    # Hard triggers — unambiguously bad
+    hard_triggers = [
+        "kill yourself",
+        "fuck you",
+        "die in a fire",
+        "i hope you die",
+        "you should die",
+        "hate you so much",
+        "racist", "nazi",
+        "dumbass", "fatass", "worthless", "pathetic"
+    ]
+
+    if any(word in lowered for word in hard_triggers):
+        return True
+
+    # Aggressive directed combos only — must have explicit 'you' target + aggression
+    directed_patterns = [
+        r"\bi\s+hate\s+you\b",
+        r"\bno\s+one\s+likes\s+you\b",
+        r"\byou\s+suck\b",
+        r"\bshut\s+the\s+fuck\s+up\b",
+        r"\bfuck\s+you\b",
+    ]
+
+    for pattern in directed_patterns:
+        if re.search(pattern, lowered):
+            return True
+
+    # Excessive caps (genuinely aggressive, not just excited)
+    letters = sum(c.isalpha() for c in content)
+    caps = sum(c.isupper() for c in content)
+
+    if letters >= 10 and caps / letters > 0.70:
+        return True
+
+    return False
+
 # ================= AI ANALYSIS =================
 
 def analyze_message(text, rules=None):
+    """
+    FIX: Prompt tuned for a chill server.
+    - Casual insults about self, family, or third parties ('my team sucks', 'he's an idiot') are SAFE.
+    - Only direct personal attacks targeting a specific person present in the conversation are TOXIC.
+    - Venting and frustration are SAFE.
+    """
 
     rules_section = (
         f"\n\nSERVER RULES (if a rule is violated, cite it by number in your reason e.g. 'Violates Rule 2'):\n{rules}"
@@ -1205,21 +1222,23 @@ def analyze_message(text, rules=None):
             messages=[
                 {
                     "role": "system",
-                    "content": f"""You classify Discord messages.
+                    "content": f"""You classify Discord messages for a CHILL, casual server. Be lenient and reasonable.
 
 Respond ONLY in this format:
 LABEL|REASON
 
 Labels: SAFE, TOXIC, SPAM
 
-Reason must be under 10 words.
-TOXIC means ANY insult, disrespect, or attack toward a person.
-This includes: calling someone stupid, idiot, dumb, moron, ugly, loser, or any variation.
-Even indirect or mild insults like "ur stupid" or "you're an idiot" = TOXIC.
-Phrases like "ur a stupid idiot" are always TOXIC.
-When in doubt, label TOXIC.
-Be VERY STRICT. If server rules are provided and a rule is violated, cite the rule number.
+Rules for TOXIC:
+- Only flag as TOXIC if a message is a clear, direct personal attack targeting a SPECIFIC PERSON present in the conversation.
+- Mild insults, venting, and casual trash talk are SAFE. Examples of SAFE: "ugh i'm so stupid", "my family sucks", "he's an idiot", "this game is trash", "you're kinda dumb lol", "bro that's so dumb".
+- Slurs, explicit threats to a specific user, or sustained targeted harassment = TOXIC.
+- When in doubt, label SAFE. Do NOT over-moderate a chill server.
 
+Rules for SPAM:
+- Only flag as SPAM for actual flooding or repeated meaningless content.
+
+Reason must be under 10 words.
 {rules_section}"""
                 },
                 {
@@ -1254,7 +1273,7 @@ def ask_ai(question):
             messages=[
                 {
                     "role": "system",
-                    "content": 
+                    "content":
                     "You are a helpful Discord bot assistant. Answer questions clearly and concisely. Keep responses short and friendly unless detail is needed. Formatting of your answers must be in discord text formatting especially for mathematical equations. If someone asks you what you think of/what is your opinion of/what's your opinion on (or something along those lines) @<356535250932858885>, say the words 'What's there to think about? I'm way better than him 😎' "
                 },
                 {
@@ -1277,10 +1296,7 @@ def ask_ai(question):
 
 async def log_action(guild, msg):
 
-    channel = discord.utils.get(
-        guild.text_channels,
-        name=LOG_CHANNEL_NAME
-    )
+    channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
 
     if channel:
         await channel.send(f"🛡️ {msg}")
@@ -1299,11 +1315,7 @@ async def apply_punishment(
     try:
 
         if action == "timeout":
-
-            until = discord.utils.utcnow() + datetime.timedelta(
-                minutes=duration_mins
-            )
-
+            until = discord.utils.utcnow() + datetime.timedelta(minutes=duration_mins)
             await member.timeout(until, reason=reason)
             action_desc = f"timed out for {duration_mins}m"
 
@@ -1318,28 +1330,15 @@ async def apply_punishment(
         else:
             return
 
-        msg = (
-            f"🔇 {member.mention} was {action_desc}.\n"
-            f"Reason: {reason}"
-        )
+        msg = f"🔇 {member.mention} was {action_desc}.\nReason: {reason}"
 
         if isinstance(ctx, discord.Interaction):
             await ctx.followup.send(msg)
         else:
             await ctx.channel.send(msg)
 
-        await log_action(
-            member.guild,
-            f"{member} | {action_desc} | {reason} | by {moderator}"
-        )
-
-        await store_action(
-            member.guild.id,
-            f"{member} ({member.id})",
-            action_desc,
-            reason,
-            moderator
-        )
+        await log_action(member.guild, f"{member} | {action_desc} | {reason} | by {moderator}")
+        await store_action(member.guild.id, f"{member} ({member.id})", action_desc, reason, moderator)
 
     except discord.Forbidden:
 
@@ -1356,23 +1355,14 @@ async def handle_warning_logic(ctx, member, warnings, reason, moderator="AutoMod
 
     if warnings == 1:
 
-        msg = (
-            f"⚠️ {member.mention}, first warning.\n"
-            f"Reason: {reason}"
-        )
+        msg = f"⚠️ {member.mention}, first warning.\nReason: {reason}"
 
         if isinstance(ctx, discord.Interaction):
             await ctx.followup.send(msg)
         else:
             await ctx.channel.send(msg)
 
-        await store_action(
-            member.guild.id,
-            f"{member} ({member.id})",
-            "warned (1st)",
-            reason,
-            moderator
-        )
+        await store_action(member.guild.id, f"{member} ({member.id})", "warned (1st)", reason, moderator)
 
     elif warnings == 2:
         await apply_punishment(ctx, member, "timeout", 30, reason, moderator)
@@ -1402,10 +1392,7 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 
     count = await add_warning(member.id)
 
-    await handle_warning_logic(
-        interaction, member, count, reason,
-        moderator=str(interaction.user)
-    )
+    await handle_warning_logic(interaction, member, count, reason, moderator=str(interaction.user))
 
 
 @bot.tree.command(name="warnings", description="Check a user's warning count")
@@ -1442,18 +1429,8 @@ async def mute(
             f"🔇 {member.mention} has been muted for **{duration}m**.\nReason: {reason}"
         )
 
-        await log_action(
-            interaction.guild,
-            f"{member} | timed out {duration}m | {reason} | by {interaction.user}"
-        )
-
-        await store_action(
-            interaction.guild.id,
-            f"{member} ({member.id})",
-            f"timed out for {duration}m",
-            reason,
-            str(interaction.user)
-        )
+        await log_action(interaction.guild, f"{member} | timed out {duration}m | {reason} | by {interaction.user}")
+        await store_action(interaction.guild.id, f"{member} ({member.id})", f"timed out for {duration}m", reason, str(interaction.user))
 
     except discord.Forbidden:
         await interaction.followup.send("❌ Cannot mute user. Check role hierarchy.")
@@ -1468,22 +1445,10 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
     try:
         await member.timeout(None)
 
-        await interaction.followup.send(
-            f"🔊 {member.mention}'s timeout has been removed."
-        )
+        await interaction.followup.send(f"🔊 {member.mention}'s timeout has been removed.")
 
-        await log_action(
-            interaction.guild,
-            f"{member} | timeout removed | by {interaction.user}"
-        )
-
-        await store_action(
-            interaction.guild.id,
-            f"{member} ({member.id})",
-            "unmuted",
-            "Manual unmute",
-            str(interaction.user)
-        )
+        await log_action(interaction.guild, f"{member} | timeout removed | by {interaction.user}")
+        await store_action(interaction.guild.id, f"{member} ({member.id})", "unmuted", "Manual unmute", str(interaction.user))
 
     except discord.Forbidden:
         await interaction.followup.send("❌ Cannot unmute user. Check role hierarchy.")
@@ -1501,22 +1466,10 @@ async def kick(interaction: discord.Interaction, member: discord.Member, reason:
     try:
         await member.kick(reason=reason)
 
-        await interaction.followup.send(
-            f"👢 {member.mention} has been kicked.\nReason: {reason}"
-        )
+        await interaction.followup.send(f"👢 {member.mention} has been kicked.\nReason: {reason}")
 
-        await log_action(
-            interaction.guild,
-            f"{member} | kicked | {reason} | by {interaction.user}"
-        )
-
-        await store_action(
-            interaction.guild.id,
-            f"{member} ({member.id})",
-            "kicked",
-            reason,
-            str(interaction.user)
-        )
+        await log_action(interaction.guild, f"{member} | kicked | {reason} | by {interaction.user}")
+        await store_action(interaction.guild.id, f"{member} ({member.id})", "kicked", reason, str(interaction.user))
 
     except discord.Forbidden:
         await interaction.followup.send("❌ Cannot kick user. Check role hierarchy.")
@@ -1534,22 +1487,10 @@ async def ban(interaction: discord.Interaction, member: discord.Member, reason: 
     try:
         await member.ban(reason=reason)
 
-        await interaction.followup.send(
-            f"🔨 {member.mention} has been banned.\nReason: {reason}"
-        )
+        await interaction.followup.send(f"🔨 {member.mention} has been banned.\nReason: {reason}")
 
-        await log_action(
-            interaction.guild,
-            f"{member} | banned | {reason} | by {interaction.user}"
-        )
-
-        await store_action(
-            interaction.guild.id,
-            f"{member} ({member.id})",
-            "banned permanently",
-            reason,
-            str(interaction.user)
-        )
+        await log_action(interaction.guild, f"{member} | banned | {reason} | by {interaction.user}")
+        await store_action(interaction.guild.id, f"{member} ({member.id})", "banned permanently", reason, str(interaction.user))
 
     except discord.Forbidden:
         await interaction.followup.send("❌ Cannot ban user. Check role hierarchy.")
@@ -1585,9 +1526,7 @@ async def report(interaction: discord.Interaction, message_id: str):
 
     rules = await get_rules(interaction.guild.id)
 
-    verdict, reason = await asyncio.to_thread(
-        analyze_message, target_msg.content, rules
-    )
+    verdict, reason = await asyncio.to_thread(analyze_message, target_msg.content, rules)
 
     if verdict in ["TOXIC", "SPAM"]:
 
@@ -1599,24 +1538,15 @@ async def report(interaction: discord.Interaction, message_id: str):
         member = interaction.guild.get_member(target_msg.author.id)
 
         if member and can_warn(member.id):
-
             warnings = await add_warning(member.id)
-
-            await handle_warning_logic(
-                interaction, member, warnings,
-                f"Reported: {reason}",
-                moderator=str(interaction.user)
-            )
+            await handle_warning_logic(interaction, member, warnings, f"Reported: {reason}", moderator=str(interaction.user))
 
         await interaction.followup.send(
             f"✅ Report confirmed. Action taken against {target_msg.author.mention}.\nReason: {reason}",
             ephemeral=True
         )
 
-        await log_action(
-            interaction.guild,
-            f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} | Reason: {reason}"
-        )
+        await log_action(interaction.guild, f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} | Reason: {reason}")
 
     else:
 
@@ -1625,10 +1555,7 @@ async def report(interaction: discord.Interaction, message_id: str):
             ephemeral=True
         )
 
-        await log_action(
-            interaction.guild,
-            f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} (no action)"
-        )
+        await log_action(interaction.guild, f"Report by {interaction.user} | Target: {target_msg.author} | Verdict: {verdict} (no action)")
 
 
 @bot.tree.command(name="clear_warnings", description="Clear warnings for a user")
@@ -1639,17 +1566,9 @@ async def clear_warnings(interaction: discord.Interaction, member: discord.Membe
         await db.execute("DELETE FROM warnings WHERE user_id=?", (member.id,))
         await db.commit()
 
-    await interaction.response.send_message(
-        f"✅ Cleared warnings for {member.mention}"
-    )
+    await interaction.response.send_message(f"✅ Cleared warnings for {member.mention}")
 
-    await store_action(
-        interaction.guild.id,
-        f"{member} ({member.id})",
-        "warnings cleared",
-        "Manual clear",
-        str(interaction.user)
-    )
+    await store_action(interaction.guild.id, f"{member} ({member.id})", "warnings cleared", "Manual clear", str(interaction.user))
 
 # ================= RULES COMMANDS =================
 
@@ -1672,10 +1591,7 @@ async def rules_view(interaction: discord.Interaction):
     r = await get_rules(interaction.guild.id)
 
     if r:
-        await interaction.response.send_message(
-            f"📋 **Server Rules:**\n{r}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"📋 **Server Rules:**\n{r}", ephemeral=True)
     else:
         await interaction.response.send_message(
             "No rules set yet. Admins can use `/rules set` to add them.",
@@ -1701,9 +1617,7 @@ async def on_message(message):
         if message.reference and message.reference.message_id:
 
             try:
-                replied_msg = await message.channel.fetch_message(
-                    message.reference.message_id
-                )
+                replied_msg = await message.channel.fetch_message(message.reference.message_id)
             except:
                 replied_msg = None
 
@@ -1711,9 +1625,7 @@ async def on_message(message):
 
                 rules = await get_rules(message.guild.id)
 
-                verdict, reason = await asyncio.to_thread(
-                    analyze_message, replied_msg.content, rules
-                )
+                verdict, reason = await asyncio.to_thread(analyze_message, replied_msg.content, rules)
 
                 if verdict in ["TOXIC", "SPAM"]:
 
@@ -1725,24 +1637,13 @@ async def on_message(message):
                     member = message.guild.get_member(replied_msg.author.id)
 
                     if member and can_warn(member.id):
-
                         warnings = await add_warning(member.id)
+                        await handle_warning_logic(message, member, warnings, f"Reported via mention: {reason}", moderator=str(message.author))
 
-                        await handle_warning_logic(
-                            message, member, warnings,
-                            f"Reported via mention: {reason}",
-                            moderator=str(message.author)
-                        )
-
-                    await log_action(
-                        message.guild,
-                        f"Mention-report by {message.author} | Target: {replied_msg.author} | Verdict: {verdict} | {reason}"
-                    )
+                    await log_action(message.guild, f"Mention-report by {message.author} | Target: {replied_msg.author} | Verdict: {verdict} | {reason}")
 
                 else:
-                    await message.channel.send(
-                        f"✅ Message reviewed — deemed **{verdict}**. No action taken."
-                    )
+                    await message.channel.send(f"✅ Message reviewed — deemed **{verdict}**. No action taken.")
 
             elif replied_msg and replied_msg.author.bot:
                 await message.channel.send("❌ Cannot report bot messages.")
@@ -1756,7 +1657,6 @@ async def on_message(message):
                 await message.channel.send(answer)
             else:
                 await message.channel.send(
-                    
 """
 I'm here to help!
 
@@ -1803,28 +1703,20 @@ You can also ping me in a reply to a message to report it.
 
     # ================= AI SPAM DETECTION =================
 
-    burst_messages, burst_objects = record_message(
-        message.author.id,
-        message.content,
-        message
-    )
+    burst_messages, burst_objects = record_message(message.author.id, message.content, message)
 
     if burst_messages:
 
-        verdict, reason = await asyncio.to_thread(
-            check_spam_ai, burst_messages
-        )
+        verdict, reason = await asyncio.to_thread(check_spam_ai, burst_messages)
 
         if verdict == "SPAM":
 
-            # Delete all buffered messages from the burst
             for msg_obj in burst_objects:
                 try:
                     await msg_obj.delete()
                 except:
                     pass
 
-            # Clear buffer so we don't re-trigger
             user_message_buffer[message.author.id] = []
 
             if can_warn(message.author.id):
@@ -1871,9 +1763,7 @@ You can also ping me in a reply to a message to report it.
 
         rules = await get_rules(message.guild.id)
 
-        verdict, reason = await asyncio.to_thread(
-            analyze_message, message.content, rules
-        )
+        verdict, reason = await asyncio.to_thread(analyze_message, message.content, rules)
 
         if verdict in ["TOXIC", "SPAM"]:
 
